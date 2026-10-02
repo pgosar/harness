@@ -1,0 +1,9 @@
+# Task state (per-chat, ephemeral)
+task-*.json
+current-task.json
+# Watcher runtime state
+watch-*.log
+watch-*.pid
+watch-*.state
+# Completed task archive
+completed/

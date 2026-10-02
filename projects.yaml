@@ -1,0 +1,6 @@
+# Project name -> MacBook repo path mapping for task watch
+# When user mentions a project, start: task watch <name> <path>
+
+dotfiles: /Users/chilly/code/dotfiles
+rules: /Users/chilly/code/rules
+taos: /Users/chilly/code/taos
