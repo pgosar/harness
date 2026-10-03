@@ -153,6 +153,22 @@ EOF
         echo "Vague statements like 'looks good' or 'works' are not verification."
         exit 1
       fi
+      # 6. Screenshot gate: visual changes require screenshot evidence
+      # Check if any changed files are visual (CSS, theme, UI)
+      VISUAL_FILES=$(git diff --name-only HEAD 2>/dev/null | grep -iE "\.(css|scss)$|theme|wallpaper" | head -5)
+      if [ -n "$VISUAL_FILES" ]; then
+        if ! echo "$NOTE" | grep -qiE "screenshot"; then
+          echo ""
+          echo "BLOCKED: visual files changed but no screenshot mentioned."
+          echo "Changed visual files:"
+          echo "$VISUAL_FILES" | sed "s/^/  /"
+          echo ""
+          echo "Visual changes require screenshot evidence."
+          echo "Take a screenshot showing the actual rendered result,"
+          echo "then include 'screenshot: <path or description>' in your verification."
+          exit 1
+        fi
+      fi
       # If --verified flag is present (subagent already approved), skip the prompt
       if [ "$4" = "--verified" ]; then
         echo "Verifier subagent approved. Completing."
@@ -436,8 +452,68 @@ PYEOF2
     fi
     ;;
 
+  diff-review)
+    echo "=== Diff Review ==="
+    echo ""
+    echo "Files changed (staged):"
+    git diff --cached --stat 2>/dev/null | head -20
+    echo ""
+    echo "Answer before committing:"
+    echo "  1. What does this change? (one sentence per file)"
+    echo "  2. What could it break? (list specific failure modes)"
+    echo "  3. What did you NOT test? (be honest)"
+    echo ""
+    echo "If you cannot answer #2, you do not understand the change well enough to commit."
+    ;;
+
+  env-check)
+    if [ -z "$2" ]; then
+      echo "Usage: task.sh env-check <path> [...]"
+      exit 1
+    fi
+    echo "=== Environment Check ==="
+    echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo ""
+    shift
+    for p in "$@"; do
+      if [ -e "$p" ]; then
+        echo "  OK $p (mtime: $(stat -c %y "$p" 2>/dev/null || stat -f %Sm "$p" 2>/dev/null | cut -d. -f1))"
+      else
+        echo "  MISSING $p"
+      fi
+    done
+    ;;
+
+  log-decision)
+    if [ ! -f "$TASK_FILE" ]; then echo "No active task."; exit 1; fi
+    if [ -z "$2" ]; then echo "Usage: task.sh log-decision \"chose X because Y\""; exit 1; fi
+    CHAT_NS=${CHAT_ID:-}
+    if [ -n "$CHAT_NS" ]; then TF=~/workspace/harness/task-$CHAT_NS.json; else TF=~/workspace/harness/current-task.json; fi
+    python3 - "$2" "$TF" << 'PYEOF2'
+import json, sys
+decision_text, task_file = sys.argv[1], sys.argv[2]
+d = json.load(open(task_file))
+d.setdefault("decisions", []).append({"ts": __import__("datetime").datetime.utcnow().isoformat()+"Z", "text": decision_text})
+json.dump(d, open(task_file,"w"), indent=2)
+print(f"Decision logged ({len(d['decisions'])} total).")
+PYEOF2
+    ;;
+
+  scope-check)
+    if [ ! -f "$TASK_FILE" ]; then echo "No active task."; exit 1; fi
+    CHAT_NS=${CHAT_ID:-}
+    if [ -n "$CHAT_NS" ]; then TF=~/workspace/harness/task-$CHAT_NS.json; else TF=~/workspace/harness/current-task.json; fi
+    GOAL=$(python3 -c "import json; print(json.load(open('$TF')).get('goal',''))")
+    echo "=== Scope Check ==="
+    echo "Goal: $GOAL"
+    echo ""
+    git diff --name-only HEAD 2>/dev/null | head -20
+    echo ""
+    echo "Does every file above serve the goal? If not, split the commit."
+    ;;
+
   *)
-    echo "Usage: task.sh start|premortem|verify|fail|review|decide|status|watch|watch-status|watch-stop"
+    echo "Usage: task.sh start|premortem|verify|fail|review|decide|status|watch|watch-status|watch-stop|watch-project|verify-check|diff-review|env-check|log-decision|scope-check"
     exit 1
     ;;
 esac
